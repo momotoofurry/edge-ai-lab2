@@ -1,0 +1,136 @@
+{
+  "reference_model": "unsloth/Llama-3.1-8B",
+  "corpus": "wikitext-2-raw-v1 train, first 2048 tokens",
+  "grid_step": 0.02,
+  "slack_db": 0.0,
+  "weight": {
+    "q_proj": {
+      "t1": 1.84,
+      "t2": "CAP",
+      "bits": 5.1573,
+      "fp6_share": 0.4537,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.014,
+      "layers": 32
+    },
+    "k_proj": {
+      "t1": 1.82,
+      "t2": "CAP",
+      "bits": 5.3276,
+      "fp6_share": 0.5388,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.241,
+      "layers": 32
+    },
+    "v_proj": {
+      "t1": 1.78,
+      "t2": "CAP",
+      "bits": 5.1345,
+      "fp6_share": 0.4423,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.17,
+      "layers": 32
+    },
+    "o_proj": {
+      "t1": 1.74,
+      "t2": "CAP",
+      "bits": 5.2163,
+      "fp6_share": 0.4831,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.268,
+      "layers": 32
+    },
+    "gate_proj": {
+      "t1": 1.8,
+      "t2": "CAP",
+      "bits": 5.4001,
+      "fp6_share": 0.5751,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.052,
+      "layers": 32
+    },
+    "up_proj": {
+      "t1": 1.74,
+      "t2": "CAP",
+      "bits": 5.1707,
+      "fp6_share": 0.4603,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.165,
+      "layers": 32
+    },
+    "down_proj": {
+      "t1": 1.74,
+      "t2": "CAP",
+      "bits": 5.2036,
+      "fp6_share": 0.4768,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.305,
+      "layers": 32
+    }
+  },
+  "act": {
+    "q_proj": {
+      "t1": 2.18,
+      "t2": "CAP",
+      "bits": 5.5709,
+      "fp6_share": 0.6605,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.021,
+      "layers": 32
+    },
+    "k_proj": {
+      "t1": 2.06,
+      "t2": "CAP",
+      "bits": 5.708,
+      "fp6_share": 0.729,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.042,
+      "layers": 32
+    },
+    "v_proj": {
+      "t1": 2.26,
+      "t2": "CAP",
+      "bits": 5.4779,
+      "fp6_share": 0.614,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.082,
+      "layers": 32
+    },
+    "o_proj": {
+      "t1": 2.28,
+      "t2": "CAP",
+      "bits": 5.4861,
+      "fp6_share": 0.6181,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.134,
+      "layers": 32
+    },
+    "gate_proj": {
+      "t1": 1.8,
+      "t2": "CAP",
+      "bits": 5.4103,
+      "fp6_share": 0.5802,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.114,
+      "layers": 32
+    },
+    "up_proj": {
+      "t1": 1.8,
+      "t2": "CAP",
+      "bits": 5.4103,
+      "fp6_share": 0.5802,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.083,
+      "layers": 32
+    },
+    "down_proj": {
+      "t1": 2.54,
+      "t2": "CAP",
+      "bits": 5.5929,
+      "fp6_share": 0.6714,
+      "fp8_share": 0.0,
+      "min_margin_db": 0.079,
+      "layers": 32
+    }
+  }
+}
