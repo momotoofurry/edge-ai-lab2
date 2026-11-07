@@ -2,12 +2,13 @@
 the thresholds are then applied unchanged to Qwen3-4B."""
 import argparse
 import json
+import os
 import sys
 
 import torch
 import torch.nn as nn
 
-from mx import (EFF_BITS, STAT_MAX, mx_quantize, nvfp4_quantize, tile_errors, tile_stat)
+from mx import (EFF_BITS, STAT_MAX, TAG_BITS, mx_quantize, nvfp4_quantize, tile_errors, tile_stat)
 
 PROJ = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
 FMTS = ("fp4", "fp6", "fp8")
@@ -51,6 +52,7 @@ def solve(hists, slack_db=0.0):
     E4, E6, E8, NV = P[:, 1], P[:, 2], P[:, 3], P[:, 4]
     err = E4[:, i] + (E6[:, j] - E6[:, i]) + (E8[:, M][:, None, None] - E8[:, j])
     ref = NV[:, M][:, None, None]
+    # slack_db > 0 lets each layer's error exceed the NVFP4 reference by that many dB
     feasible = valid & (err <= ref * 10 ** (slack_db / 10)).all(dim=0)
     if not feasible.any():
         raise RuntimeError("no threshold pair meets the NVFP4 reference")
@@ -66,7 +68,39 @@ def solve(hists, slack_db=0.0):
     return dict(t1=t(bi), t2=t(bj), bits=round(best.item(), 4),
                 fp6_share=round(((N[bj] - N[bi]) / total).item(), 4),
                 fp8_share=round(((total - N[bj]) / total).item(), 4),
-                min_margin_db=round((sqnr - sqnr_nv).min().item(), 3), layers=H.shape[0])
+                min_margin_db=round((sqnr - sqnr_nv).min().item(), 3), layers=H.shape[0],
+                tiles=int(total.item()))
+
+
+def solve_all(hist, slack_db):
+    """hist: {(operand, proj): [per-layer histograms]} -> {"weight": {proj: r}, "act": {proj: r}}"""
+    out = {"weight": {}, "act": {}}
+    for (op, p), hs in hist.items():
+        out["weight" if op == "wt" else "act"][p] = solve(list(hs), slack_db)
+    return out
+
+
+def effective_bits(result):
+    """Tile-weighted mean bits of each operand on the reference model, plus the per-tile
+    format tag, and their average: the quantity the assignment limits to 5.3."""
+    def mean(rs):
+        return sum(r["bits"] * r["tiles"] for r in rs.values()) / sum(r["tiles"] for r in rs.values())
+    w = mean(result["weight"]) + TAG_BITS
+    a = mean(result["act"]) + TAG_BITS
+    return w, a, (w + a) / 2
+
+
+def solve_budget(hist, target_bits, step=0.1, max_slack=12.0):
+    """Smallest global slack (dB below the NVFP4 reference, same for every operand and
+    projection) whose thresholds bring the reference model's effective bit rate to
+    <= target_bits. Slack 0 is the paper's NVFP4 parity."""
+    k = 0
+    while True:
+        slack = round(k * step, 6)
+        result = solve_all(hist, slack)
+        if effective_bits(result)[2] <= target_bits or slack >= max_slack:
+            return result, slack
+        k += 1
 
 
 class _Catcher(nn.Module):
@@ -82,13 +116,8 @@ class _Catcher(nn.Module):
 
 
 @torch.no_grad()
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="unsloth/Llama-3.1-8B")
-    ap.add_argument("--seqlen", type=int, default=2048)
-    ap.add_argument("--out", default="thresholds.json")
-    args = ap.parse_args()
-
+def collect(args):
+    """One pass of the reference model over the corpus -> per-layer histograms."""
     from datasets import load_dataset
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -142,15 +171,40 @@ def main():
             hist[("wt", p)].append(h.h)
         layer.to("cpu")
         log(f"[derive] layer {li} done")
+    return {k: torch.stack(v).cpu() for k, v in hist.items()}
 
-    result = {"reference_model": args.model, "corpus": f"wikitext-2-raw-v1 train, first {args.seqlen} tokens",
-              "grid_step": STEP, "slack_db": 0.0, "weight": {}, "act": {}}
-    for (op, p), hs in hist.items():
-        r = solve(hs)
-        result["weight" if op == "wt" else "act"][p] = r
-        log(f"[derive] {op:3s} {p:9s} {r}")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="unsloth/Llama-3.1-8B")
+    ap.add_argument("--seqlen", type=int, default=2048)
+    ap.add_argument("--out", default="thresholds.json")
+    ap.add_argument("--target-bits", type=float, default=5.25,
+                    help="effective bit rate (weight + activation) / 2 to reach on the reference model")
+    ap.add_argument("--hist", default="reference_hist.pt",
+                    help="histogram cache: reused if present, so re-solving needs no model")
+    args = ap.parse_args()
+
+    if os.path.exists(args.hist):
+        hist = {tuple(k.split("/")): v for k, v in torch.load(args.hist, weights_only=True).items()}
+        log(f"[derive] loaded histograms from {args.hist}")
+    else:
+        hist = collect(args)
+        torch.save({"/".join(k): v for k, v in hist.items()}, args.hist)
+        log(f"[derive] saved histograms to {args.hist}")
+
+    result, slack = solve_budget(hist, args.target_bits)
+    w, a, rate = effective_bits(result)
+    out = {"reference_model": args.model, "corpus": f"wikitext-2-raw-v1 train, first {args.seqlen} tokens",
+           "grid_step": STEP, "target_bits": args.target_bits, "slack_db": slack,
+           "reference_bits": {"weight": round(w, 4), "act": round(a, 4), "effective": round(rate, 4)},
+           **result}
+    for op in ("weight", "act"):
+        for p, r in result[op].items():
+            log(f"[derive] {op:6s} {p:9s} {r}")
+    log(f"[derive] slack {slack} dB -> reference bits weight {w:.4f}, act {a:.4f}, effective {rate:.4f}")
     with open(args.out, "w") as f:
-        json.dump(result, f, indent=2)
+        json.dump(out, f, indent=2)
     log(f"[derive] wrote {args.out}")
 
 

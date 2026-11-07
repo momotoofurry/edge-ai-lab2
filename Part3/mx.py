@@ -13,6 +13,7 @@ ELEM = {  # (mantissa bits, exponent bias, largest magnitude)
 EFF_BITS = {"fp4": 4.25, "fp6": 6.25, "fp8": 8.25}  # payload + 8-bit scale / 32 elements
 NVFP4_BITS = 4.5
 BLOCK, TILE_ROWS = 32, 16
+TAG_BITS = 5 * 8 / (BLOCK * TILE_ROWS)  # per-tile format tag (pool id + offset), 5 B per 512 elements
 STAT_MAX = 0.5 * math.log2(BLOCK * TILE_ROWS)
 
 
@@ -77,6 +78,19 @@ def adaptquant(x, t1, t2=float("inf")):
             mask = sel[:, None, :, None].expand(-1, TILE_ROWS, -1, BLOCK).reshape(x.shape)
             out = torch.where(mask, q, out)
     return out.to(x.dtype), fmt
+
+
+def bits_from_counts(counts, tagged=True):
+    """Average effective bits per element from FP4 / FP6 / FP8 tile counts (every tile has
+    512 elements): element bits + shared-scale overhead (EFF_BITS), plus the per-tile format
+    tag when the operand mixes formats. Returns (bits, tile share per format)."""
+    counts = counts.double().cpu()
+    share = counts / counts.sum()
+    fmts = ("fp4", "fp6", "fp8")
+    bits = sum(share[k].item() * EFF_BITS[f] for k, f in enumerate(fmts))
+    if tagged:
+        bits += TAG_BITS
+    return bits, {f: round(share[k].item(), 4) for k, f in enumerate(fmts)}
 
 
 def tile_errors(x, wc, quantized):

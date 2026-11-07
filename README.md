@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Part 1 | MobileNetV2 上的線性量化（Q1–Q10） | 所有 test 通過 |
 | Part 2 | 壓縮 Qwen3-4B 的 Linear 層（四個 case） | 見下表 |
-| Part 3 | 重現 AdaptQuant（per-tile MXFP4/MXFP6，不需校正資料） | WikiText-2 PPL 14.20 |
+| Part 3 | 重現 AdaptQuant（per-tile MXFP4/MXFP6，不需校正資料，≤ 5.3 bits） | WikiText-2 PPL 14.64，effective bit rate 5.17 |
 
 ## Part 2 結果
 

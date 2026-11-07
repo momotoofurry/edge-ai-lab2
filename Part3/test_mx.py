@@ -94,6 +94,41 @@ def test_solve_threshold_program():
     assert M == 226
 
 
+def test_bits_from_counts():
+    from mx import TAG_BITS, bits_from_counts
+    bits, share = bits_from_counts(torch.tensor([1.0, 1.0, 0.0]))  # half FP4, half FP6
+    assert abs(bits - (5.25 + TAG_BITS)) < 1e-9 and share == {"fp4": 0.5, "fp6": 0.5, "fp8": 0.0}
+    bits, _ = bits_from_counts(torch.tensor([3.0, 0.0, 0.0]), tagged=False)  # uniform MXFP4
+    assert bits == 4.25
+    assert abs(TAG_BITS - 0.078125) < 1e-12
+
+
+def test_solve_budget_lowers_bits():
+    from derive import Histogram, effective_bits, solve_all, solve_budget
+    torch.manual_seed(5)
+    hist = {}
+    for op, p in (("wt", "q_proj"), ("act", "q_proj"), ("wt", "down_proj"), ("act", "down_proj")):
+        layers = []
+        for _ in range(2):
+            x = torch.randn(64, 256)
+            x[::3] *= torch.rand(x[::3].shape) ** 6 * 30  # heavy-tailed rows -> high-stat tiles
+            h = Histogram("cpu")
+            h.add(x, torch.ones(256))
+            layers.append(h.h)
+        hist[(op, p)] = torch.stack(layers)
+    parity = solve_all(hist, 0.0)
+    _, _, rate0 = effective_bits(parity)
+    assert rate0 > 4.25 + 0.2, rate0  # parity needs some FP6 here
+    target = rate0 - 0.2
+    result, slack = solve_budget(hist, target)
+    _, _, rate = effective_bits(result)
+    assert slack > 0 and rate <= target, (slack, rate, target)
+    for op in ("weight", "act"):
+        for p in result[op]:
+            assert result[op][p]["fp6_share"] <= parity[op][p]["fp6_share"]
+    assert solve_budget(hist, rate0 + 1)[1] == 0.0  # already under budget -> paper's parity
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
